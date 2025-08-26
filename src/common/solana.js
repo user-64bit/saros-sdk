@@ -69,7 +69,7 @@ export async function awaitTransactionSignatureConfirmation(
               resolve(result);
             }
           },
-          'recent'
+          'confirmed'
         );
       } catch (e) {
         done = true;
@@ -194,7 +194,7 @@ LAYOUT.addVariant(
 export const genConnectionSolana = () => {
   const connectionSolana = new Connection(
     'https://api.mainnet-beta.solana.com',
-    'singleGossip'
+    'confirmed'
   );
   return connectionSolana;
 };

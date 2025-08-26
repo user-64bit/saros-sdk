@@ -97,13 +97,14 @@ export const createPool = async (
 ) => {
   const transaction = await createTransactions(connection, owner);
   const payerAccount = await genOwnerSolana(owner);
-  const [poolAccountSeed] = await findPoolSeed(sarosSwapProgramId);
-  const poolAccount = Keypair.fromSeed(poolAccountSeed.toBuffer());
+  // Use an unpredictable keypair for the pool program account to avoid address squatting
+  const poolAccount = Keypair.generate();
   const [poolAuthorityAddress] = await findPoolAuthorityAddress(
     poolAccount.publicKey,
     sarosSwapProgramId
   );
-  const poolLpMintAccount = Keypair.fromSeed(poolAuthorityAddress.toBuffer());
+  // Use an unpredictable keypair for LP mint; authority will be the PDA (poolAuthorityAddress)
+  const poolLpMintAccount = Keypair.generate();
 
   if (!(await isAddressInUse(connection, poolLpMintAccount.publicKey))) {
     const lamportsToInitializeMint =
@@ -119,6 +120,30 @@ export const createPool = async (
       );
     transaction.add(initMintTransaction.instructions[0]);
     transaction.add(initMintTransaction.instructions[1]);
+  } else {
+    // Strictly validate pre-existing mint to prevent adopting an attacker-controlled mint
+    const existingMintInfo = await getTokenMintInfo(
+      connection,
+      poolLpMintAccount.publicKey
+    );
+    const isOwnerTokenProgram = true; // getTokenMintInfo succeeds only for token program-owned mints
+    const hasExpectedDecimals = existingMintInfo.decimals === 2;
+    const hasExpectedAuthority =
+      existingMintInfo.mintAuthority &&
+      existingMintInfo.mintAuthority.toString() ===
+      poolAuthorityAddress.toString();
+    const hasNoFreezeAuthority = existingMintInfo.freezeAuthority === null;
+
+    if (
+      !isOwnerTokenProgram ||
+      !hasExpectedDecimals ||
+      !hasExpectedAuthority ||
+      !hasNoFreezeAuthority
+    ) {
+      throw new Error(
+        'Unsafe pre-existing LP mint detected: refuses to adopt mismatched mint configuration'
+      );
+    }
   }
   const poolToken0Address = await findAssociatedTokenAddress(
     poolAuthorityAddress,
@@ -296,7 +321,7 @@ export const withdrawAllTokenTypes = async (
   if (OWNER_WITHDRAW_FEE_NUMERATOR.toNumber() !== 0) {
     feeAmount = Math.floor(
       (lpTokenAmount * OWNER_WITHDRAW_FEE_NUMERATOR.toNumber()) /
-        OWNER_WITHDRAW_FEE_DENOMINATOR.toNumber()
+      OWNER_WITHDRAW_FEE_DENOMINATOR.toNumber()
     );
   }
   const withdrawLpTokenAmount = lpTokenAmount - feeAmount;
@@ -308,7 +333,7 @@ export const withdrawAllTokenTypes = async (
 
   const newAmount0 = Math.floor(
     (poolToken0AccountInfo.amount.toNumber() * withdrawLpTokenAmount) /
-      lpTokenSupply
+    lpTokenSupply
   );
 
   const token0Amount = Math.floor(
@@ -322,7 +347,7 @@ export const withdrawAllTokenTypes = async (
 
   const newAmount1 = Math.floor(
     (poolToken1AccountInfo.amount.toNumber() * withdrawLpTokenAmount) /
-      lpTokenSupply
+    lpTokenSupply
   );
   const token1Amount = Math.floor(
     newAmount1 - renderAmountSlippage(newAmount1, slippage)
@@ -868,7 +893,7 @@ export const getSwapAmountSaros = async (
     const priceImpact = Math.abs(
       ((parseFloat(beforePrice) - parseFloat(afterPrice)) /
         parseFloat(beforePrice)) *
-        100
+      100
     );
     return {
       amountOut,
@@ -887,7 +912,7 @@ export const getSwapAmountSaros = async (
     const priceImpact = Math.abs(
       ((parseFloat(afterPrice) - parseFloat(beforePrice)) /
         parseFloat(beforePrice)) *
-        100
+      100
     );
     return {
       amountOut,
